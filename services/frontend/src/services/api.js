@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { openDB, get, set, del } from 'idb-keyval'
+import { get, set, del } from 'idb-keyval'
 
 const API_GATEWAY = import.meta.env.VITE_API_GATEWAY || ''
 

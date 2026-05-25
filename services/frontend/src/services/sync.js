@@ -1,5 +1,5 @@
 import api from './api'
-import { openDB, get, set, del, keys } from 'idb-keyval'
+import { get, set, del, keys } from 'idb-keyval'
 
 const SYNC_INTERVAL = 30000
 let syncTimer = null

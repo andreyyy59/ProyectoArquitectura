@@ -1,4 +1,4 @@
-import { openDB, get, set, del, keys } from 'idb-keyval'
+import { get, set, del, keys } from 'idb-keyval'
 
 export const DB_KEYS = {
   CONTENTS: 'cached_contents',

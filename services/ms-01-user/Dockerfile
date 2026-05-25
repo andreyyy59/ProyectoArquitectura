@@ -20,7 +20,8 @@ COPY . .
 
 RUN composer install --no-interaction --optimize-autoloader --no-dev \
     && chown -R www-data:www-data storage bootstrap/cache \
-    && chmod -R 775 storage bootstrap/cache
+    && chmod -R 775 storage bootstrap/cache \
+    && mkdir -p /var/log/supervisor
 
 COPY docker/php.ini /usr/local/etc/php/conf.d/custom.ini
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
