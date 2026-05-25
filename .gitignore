@@ -1,0 +1,40 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+!.env.example
+
+# Docker
+docker-data/
+
+# PHP
+/vendor/
+services/*/vendor/
+services/*/storage/logs/*
+services/*/storage/framework/cache/data/*
+services/*/bootstrap/cache/*.php
+
+# Node
+node_modules/
+services/frontend/node_modules/
+services/frontend/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+services/ms-06-ai/__pycache__/
+
+# Logs
+*.log
+
+# Composer
+services/*/composer.lock

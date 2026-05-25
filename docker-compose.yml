@@ -1,0 +1,450 @@
+networks:
+  educonnect-network:
+    driver: bridge
+
+volumes:
+  mysql-user-data:
+  mysql-content-data:
+  mysql-sync-data:
+  mysql-analytics-data:
+  mysql-reports-data:
+  redis-data:
+  minio-data:
+  tf-models:
+
+services:
+  # ─── API Gateway ──────────────────────────────────────────────
+  api-gateway:
+    image: nginx:alpine
+    container_name: educonnect-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ms-01-user
+      - ms-03-content
+      - ms-04-sync
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-01: User Management ───────────────────────────────────
+  ms-01-user:
+    build:
+      context: ./services/ms-01-user
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-user
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-user
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_users
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      mysql-user:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  mysql-user:
+    image: mysql:8.0
+    container_name: educonnect-mysql-user
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      - MYSQL_DATABASE=educonnect_users
+      - MYSQL_USER=${DB_USERNAME:-educonnect}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+    volumes:
+      - mysql-user-data:/var/lib/mysql
+      - ./database/migrations/001_users.sql:/docker-entrypoint-initdb.d/001_users.sql
+      - ./database/migrations/002_edge_nodes.sql:/docker-entrypoint-initdb.d/002_edge_nodes.sql
+      - ./database/migrations/004_learning_paths.sql:/docker-entrypoint-initdb.d/004_learning_paths.sql
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-02: Edge Node Manager ─────────────────────────────────
+  ms-02-edge-node:
+    build:
+      context: ./services/ms-02-edge-node
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-edge
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-user
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_users
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      mysql-user:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-03: Content Management ────────────────────────────────
+  ms-03-content:
+    build:
+      context: ./services/ms-03-content
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-content
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-content
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_content
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STORAGE_DRIVER=s3
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=educonnect-content
+    depends_on:
+      mysql-content:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  mysql-content:
+    image: mysql:8.0
+    container_name: educonnect-mysql-content
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      - MYSQL_DATABASE=educonnect_content
+      - MYSQL_USER=${DB_USERNAME:-educonnect}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+    volumes:
+      - mysql-content-data:/var/lib/mysql
+      - ./database/migrations/003_contents.sql:/docker-entrypoint-initdb.d/003_contents.sql
+    ports:
+      - "3308:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-04: Offline Sync Engine ───────────────────────────────
+  ms-04-sync:
+    build:
+      context: ./services/ms-04-sync
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-sync
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-sync
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_sync
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      mysql-sync:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  mysql-sync:
+    image: mysql:8.0
+    container_name: educonnect-mysql-sync
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      - MYSQL_DATABASE=educonnect_sync
+      - MYSQL_USER=${DB_USERNAME:-educonnect}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+    volumes:
+      - mysql-sync-data:/var/lib/mysql
+      - ./database/migrations/005_sync_log.sql:/docker-entrypoint-initdb.d/005_sync_log.sql
+    ports:
+      - "3309:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-05: Adaptive Engine ───────────────────────────────────
+  ms-05-adaptive:
+    build:
+      context: ./services/ms-05-adaptive
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-adaptive
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-user
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_users
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - AI_SERVICE_URL=http://ms-06-ai:8000
+    depends_on:
+      mysql-user:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ms-06-ai:
+        condition: service_started
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-06: AI Recommendations (Python / FastAPI) ─────────────
+  ms-06-ai:
+    build:
+      context: ./services/ms-06-ai
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-ai
+    environment:
+      - MODEL_PATH=/models
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=INFO
+    volumes:
+      - tf-models:/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-07: Learning Analytics ────────────────────────────────
+  ms-07-analytics:
+    build:
+      context: ./services/ms-07-analytics
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-analytics
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-analytics
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_analytics
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      mysql-analytics:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  mysql-analytics:
+    image: mysql:8.0
+    container_name: educonnect-mysql-analytics
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      - MYSQL_DATABASE=educonnect_analytics
+      - MYSQL_USER=${DB_USERNAME:-educonnect}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+    volumes:
+      - mysql-analytics-data:/var/lib/mysql
+    ports:
+      - "3310:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-08: Connectivity Monitor ──────────────────────────────
+  ms-08-connectivity:
+    build:
+      context: ./services/ms-08-connectivity
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-connectivity
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-09: Territorial Reports ───────────────────────────────
+  ms-09-reports:
+    build:
+      context: ./services/ms-09-reports
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-reports
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-reports
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_reports
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+    depends_on:
+      mysql-reports:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  mysql-reports:
+    image: mysql:8.0
+    container_name: educonnect-mysql-reports
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootsecret}
+      - MYSQL_DATABASE=educonnect_reports
+      - MYSQL_USER=${DB_USERNAME:-educonnect}
+      - MYSQL_PASSWORD=${DB_PASSWORD:-secret}
+    volumes:
+      - mysql-reports-data:/var/lib/mysql
+    ports:
+      - "3311:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MS-10: Notifications ─────────────────────────────────────
+  ms-10-notifications:
+    build:
+      context: ./services/ms-10-notifications
+      dockerfile: Dockerfile
+    container_name: educonnect-ms-notifications
+    environment:
+      - APP_ENV=${APP_ENV:-local}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql-user
+      - DB_PORT=3306
+      - DB_DATABASE=educonnect_users
+      - DB_USERNAME=${DB_USERNAME:-educonnect}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MAIL_HOST=${MAIL_HOST:-mailhog}
+      - MAIL_PORT=1025
+    depends_on:
+      mysql-user:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── Frontend (Vue 3 + Inertia PWA) ──────────────────────────
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: educonnect-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_GATEWAY=http://api-gateway
+      - VITE_MS_USER_URL=http://ms-01-user:8000
+      - VITE_MS_CONTENT_URL=http://ms-03-content:8000
+      - VITE_MS_SYNC_URL=http://ms-04-sync:8000
+    depends_on:
+      - api-gateway
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── Redis (Caché / Colas / Mensajería) ───────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: educonnect-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MinIO (Object Storage para contenidos) ──────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: educonnect-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── MailHog (Email testing) ─────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: educonnect-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - educonnect-network
+    restart: unless-stopped
