@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AdaptiveController;
 
 Route::prefix('adaptive')->group(function () {
     Route::post('learning-path/generate', [AdaptiveController::class, 'generatePath']);
+    Route::get('learning-path/list/{userId}', [AdaptiveController::class, 'listPaths']);
     Route::get('learning-path/{uuid}', [AdaptiveController::class, 'getPath']);
     Route::get('learning-path/{uuid}/next', [AdaptiveController::class, 'nextActivity']);
     Route::post('learning-path/{uuid}/evaluate', [AdaptiveController::class, 'evaluate']);

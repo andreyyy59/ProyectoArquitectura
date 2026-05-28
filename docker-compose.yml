@@ -11,6 +11,7 @@ volumes:
   redis-data:
   minio-data:
   tf-models:
+  ollama-models:
 
 services:
   # ─── API Gateway ──────────────────────────────────────────────
@@ -18,7 +19,7 @@ services:
     image: nginx:alpine
     container_name: educonnect-gateway
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -241,6 +242,8 @@ services:
       - MODEL_PATH=/models
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:1b
       - LOG_LEVEL=INFO
     volumes:
       - tf-models:/models
@@ -249,6 +252,25 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
+    networks:
+      - educonnect-network
+    restart: unless-stopped
+
+  # ─── Ollama (LLM local para generación de contenido educativo) ─
+  ollama:
+    image: ollama/ollama:latest
+    container_name: educonnect-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+      - ./scripts/ollama-entrypoint.sh:/entrypoint.sh:ro
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_MODEL=llama3.2:1b
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     networks:
       - educonnect-network
     restart: unless-stopped

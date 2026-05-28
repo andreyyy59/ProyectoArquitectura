@@ -11,6 +11,13 @@
 </head>
 <body class="bg-green-50">
   <div id="app"></div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        regs.forEach(function(r) { r.unregister(); });
+      });
+    }
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -8,6 +8,8 @@ class LearningPathItem extends Model
 {
     protected $table = 'learning_path_items';
 
+    protected $with = ['content'];
+
     protected $fillable = [
         'learning_path_id', 'content_id', 'sort_order', 'status',
         'score', 'time_spent_seconds', 'attempts_count', 'max_attempts',

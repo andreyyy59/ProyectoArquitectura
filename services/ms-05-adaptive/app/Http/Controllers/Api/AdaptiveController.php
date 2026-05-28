@@ -11,6 +11,15 @@ use Illuminate\Support\Str;
 
 class AdaptiveController extends Controller
 {
+    public function listPaths($userId)
+    {
+        $paths = LearningPath::where('user_id', $userId)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return $this->success($paths);
+    }
+
     public function generatePath(Request $request)
     {
         $validated = $request->validate([
@@ -34,6 +43,46 @@ class AdaptiveController extends Controller
                     'status' => 'PENDING',
                 ]);
             }
+        } else {
+            $defaultModules = [
+                'Matemáticas' => [
+                    'Números Naturales', 'Suma y Resta', 'Multiplicación',
+                    'División', 'Fracciones', 'Geometría Básica',
+                    'Estadística', 'Probabilidad',
+                ],
+                'Ciencias' => [
+                    'Seres Vivos', 'Cuerpo Humano', 'Ecosistemas',
+                    'Materia y Energía', 'El Sistema Solar',
+                ],
+                'Lenguaje' => [
+                    'Vocabulario', 'Lectura', 'Gramática',
+                    'Ortografía', 'Comprensión Lectora',
+                ],
+                'Historia' => [
+                    'Historia Local', 'Cultura y Sociedad', 'Símbolos Patrios',
+                    'Personajes Históricos', 'Fechas Cívicas',
+                ],
+                'general' => [
+                    'Introducción', 'Fundamentos', 'Ejercicios', 'Evaluación',
+                ],
+            ];
+
+            $modules = $defaultModules[$validated['subject_area']] ?? $defaultModules['general'];
+            $startId = match ($validated['subject_area']) {
+                'Matemáticas' => 1,
+                'Ciencias' => 50,
+                'Lenguaje' => 100,
+                'Historia' => 150,
+                default => 200,
+            };
+
+            foreach ($modules as $order => $title) {
+                $path->items()->create([
+                    'content_id' => $startId + $order,
+                    'sort_order' => $order,
+                    'status' => 'PENDING',
+                ]);
+            }
         }
 
         // Consulta al motor de IA para recomendaciones
@@ -50,7 +99,7 @@ class AdaptiveController extends Controller
             // Opera offline sin recomendaciones IA
         }
 
-        return $this->success($path->load('items'), 201);
+        return $this->success($path->load('items.content'), 201);
     }
 
     public function getPath($uuid)

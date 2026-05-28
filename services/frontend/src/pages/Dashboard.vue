@@ -37,6 +37,13 @@
         <BookOpen class="w-12 h-12 text-gray-300 mx-auto mb-4" />
         <p class="text-gray-500 font-medium">Aún no tienes rutas de aprendizaje</p>
         <p class="text-gray-400 text-sm mt-1">El motor adaptativo generará una para ti</p>
+        <button @click="generatePath"
+          :disabled="generating"
+          class="mt-6 inline-flex items-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed">
+          <Brain v-if="!generating" class="w-4 h-4" />
+          <Loader v-else class="w-4 h-4 animate-spin" />
+          {{ generating ? 'Generando...' : 'Generar Ruta de Aprendizaje' }}
+        </button>
       </div>
 
       <div v-else class="grid md:grid-cols-2 gap-4">
@@ -45,7 +52,7 @@
           <div class="flex items-start justify-between mb-3">
             <div>
               <h4 class="font-semibold text-gray-900">{{ path.subject_area || 'Ruta General' }}</h4>
-              <p class="text-xs text-gray-400 mt-0.5">{{ path.progress_percent.toFixed(1) }}% completado</p>
+              <p class="text-xs text-gray-400 mt-0.5">{{ Number(path.progress_percent).toFixed(1) }}% completado</p>
             </div>
             <span class="text-xs px-2.5 py-1 rounded-full font-medium"
               :class="path.status === 'ACTIVE'
@@ -73,13 +80,16 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { RefreshCw, BookOpen, ArrowRight, Route, BarChart3, CloudOff, Clock } from '@lucide/vue'
+import { useRouter } from 'vue-router'
+import { RefreshCw, BookOpen, ArrowRight, Route, BarChart3, CloudOff, Clock, Brain, Loader } from '@lucide/vue'
 import api from '../services/api'
 import { syncEngine } from '../services/sync'
 import { offlineManager } from '../services/offline'
 
+const router = useRouter()
 const user = ref(JSON.parse(localStorage.getItem('user') || '{}'))
 const learningPaths = ref([])
+const generating = ref(false)
 const stats = ref({
   activePaths: 0,
   overallProgress: 0,
@@ -94,18 +104,46 @@ const statCards = [
   { label: 'Pendientes Sync', icon: Clock, value: '0', bgClass: 'bg-red-100', iconClass: 'text-red-600', textClass: 'text-red-700' },
 ]
 
-onMounted(async () => {
-  stats.value.pendingSync = syncEngine.getQueueLength()
-
+async function loadPaths() {
+  if (!user.value?.id) return
   try {
-    const response = await api.get('/adaptive/learning-path/list')
+    const response = await api.get(`/adaptive/learning-path/list/${user.value.id}`)
     if (response.data?.success) {
-      learningPaths.value = response.data.data
+      learningPaths.value = response.data.data || []
     }
   } catch {
     const cached = await offlineManager.getCachedContents()
     stats.value.offlineContent = Array.isArray(cached) ? cached.length : 0
   }
+}
+
+async function generatePath() {
+  const existing = learningPaths.value.find(
+    p => p.subject_area === 'Matemáticas' && p.status === 'ACTIVE'
+  )
+  if (existing) {
+    router.push(`/learning/${existing.uuid}`)
+    return
+  }
+  generating.value = true
+  try {
+    const response = await api.post('/adaptive/learning-path/generate', {
+      user_id: user.value.id,
+      subject_area: 'Matemáticas',
+    })
+    if (response.data?.success) {
+      await loadPaths()
+    }
+  } catch (e) {
+    console.error('Error generando ruta:', e)
+  } finally {
+    generating.value = false
+  }
+}
+
+onMounted(async () => {
+  stats.value.pendingSync = syncEngine.getQueueLength()
+  await loadPaths()
 
   statCards[0].value = String(stats.value.activePaths)
   statCards[1].value = `${stats.value.overallProgress}%`

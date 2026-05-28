@@ -55,3 +55,17 @@ export const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+
+function isAuthenticated() {
+  return !!localStorage.getItem('auth_token')
+}
+
+router.beforeEach((to, from, next) => {
+  if (to.meta.requiresAuth && !isAuthenticated()) {
+    next({ name: 'login', query: { redirect: to.fullPath } })
+  } else if (to.name === 'login' && isAuthenticated()) {
+    next({ name: 'dashboard' })
+  } else {
+    next()
+  }
+})

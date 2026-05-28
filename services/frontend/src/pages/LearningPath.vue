@@ -9,11 +9,11 @@
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h2 class="text-2xl font-bold text-gray-900">{{ path.subject_area || 'Ruta de Aprendizaje' }}</h2>
-          <p class="text-gray-500 text-sm mt-1">Progreso general: {{ path.progress_percent?.toFixed(1) }}%</p>
+          <p class="text-gray-500 text-sm mt-1">Progreso general: {{ Number(path.progress_percent).toFixed(1) }}%</p>
         </div>
         <span class="text-xs px-3 py-1 rounded-full font-medium w-fit"
-          :class="path.progress_percent >= 100 ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'">
-          {{ path.progress_percent >= 100 ? 'Completada' : 'En progreso' }}
+          :class="Number(path.progress_percent) >= 100 ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'">
+          {{ Number(path.progress_percent) >= 100 ? 'Completada' : 'En progreso' }}
         </span>
       </div>
     </div>
@@ -62,7 +62,7 @@
                   {{ item.score }}%
                 </span>
                 <router-link v-if="item.status !== 'COMPLETED'"
-                  :to="`/content/${item.content_id}`"
+                  :to="`/content/${item.content_id}?title=${encodeURIComponent(item.content?.title || 'Ejercicio')}&subject=${encodeURIComponent(path.subject_area || 'Matemáticas')}`"
                   class="inline-flex items-center gap-1.5 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-all active:scale-[0.97] shadow-sm">
                   {{ item.status === 'IN_PROGRESS' ? 'Continuar' : 'Iniciar' }}
                   <ArrowRight class="w-4 h-4" />
@@ -102,21 +102,57 @@ const borderClass = (status) => {
   return 'border-gray-100 opacity-70 hover:opacity-100'
 }
 
+const SUBJECT_TOPICS = {
+  'Matemáticas': [
+    'Números Naturales', 'Suma y Resta', 'Multiplicación',
+    'División', 'Fracciones', 'Geometría Básica',
+    'Estadística', 'Probabilidad',
+  ],
+  'Ciencias': [
+    'Seres Vivos', 'Cuerpo Humano', 'Ecosistemas',
+    'Materia y Energía', 'El Sistema Solar',
+  ],
+  'Lenguaje': [
+    'Vocabulario', 'Lectura', 'Gramática',
+    'Ortografía', 'Comprensión Lectora',
+  ],
+  'Historia': [
+    'Historia Local', 'Cultura y Sociedad', 'Símbolos Patrios',
+    'Personajes Históricos', 'Fechas Cívicas',
+  ],
+}
+
+function enrichItem(item, subject) {
+  if (!item.content) {
+    const idx = item.content_id - 1
+    const topics = SUBJECT_TOPICS[subject] || SUBJECT_TOPICS['Matemáticas']
+    item.content = {
+      title: topics[idx] || `Ejercicio ${item.sort_order + 1}`,
+      content_type: 'EXERCISE',
+      estimated_duration_minutes: 30,
+      difficulty_level: idx >= 4 ? 'INTERMEDIATE' : 'BEGINNER',
+    }
+  }
+  return item
+}
+
 onMounted(async () => {
   try {
     const response = await api.get(`/adaptive/learning-path/${route.params.pathId}`)
     if (response.data?.success) {
       path.value = response.data.data
-      pathItems.value = response.data.data.items || []
+      pathItems.value = (response.data.data.items || []).map(i => enrichItem(i, path.value.subject_area))
     }
   } catch {
     path.value = { subject_area: 'Matemáticas', progress_percent: 35 }
-    pathItems.value = [
-      { id: 1, content_id: 1, status: 'COMPLETED', score: 85, content: { title: 'Números Naturales', content_type: 'VIDEO', estimated_duration_minutes: 30 } },
-      { id: 2, content_id: 2, status: 'COMPLETED', score: 72, content: { title: 'Suma y Resta', content_type: 'INTERACTIVE', estimated_duration_minutes: 25 } },
-      { id: 3, content_id: 3, status: 'IN_PROGRESS', score: null, content: { title: 'Multiplicación', content_type: 'EXERCISE', estimated_duration_minutes: 35 } },
-      { id: 4, content_id: 4, status: 'PENDING', score: null, content: { title: 'División', content_type: 'VIDEO', estimated_duration_minutes: 30 } },
-    ]
+    const subject = path.value.subject_area
+    const topics = SUBJECT_TOPICS[subject] || SUBJECT_TOPICS['Matemáticas']
+    pathItems.value = Array.from({ length: topics.length }, (_, i) => enrichItem({
+      id: i + 1, content_id: i + 1, sort_order: i,
+      status: i < 2 ? 'COMPLETED' : i === 2 ? 'IN_PROGRESS' : 'PENDING',
+      score: i < 2 ? [85, 72][i] : null,
+      content: null,
+    }, subject))
   }
 })
 </script>
